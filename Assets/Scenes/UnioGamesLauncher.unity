@@ -442,6 +442,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1310796582}
   - component: {fileID: 1310796583}
+  - component: {fileID: 1310796584}
   m_Layer: 0
   m_Name: UnioGamesLauncher
   m_TagString: Untagged
@@ -479,8 +480,31 @@ MonoBehaviour:
   games:
   - gameName: Kindoms of King
     githubRepo: Lizardan/Kindoms-of-King
-    executableName: Kindoms of King.exe
-    folderName: Kindoms of King
+  launcherGithubUsername: Lizardan
+  launcherGithubRepo: Unio-Games-Launcher
+--- !u!114 &1310796584
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1310796581}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 959ddacec3437154f9744d55a707c55c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Desdinova.ConsoleGUIController
+  ShowConsole: 1
+  ShowStackTrace: 1
+  ShowTitle: 1
+  ShowOrder: 1
+  KeyCode: 92
+  KeyString: 
+  GUIAnchor: 2
+  GUIHeight: 2
+  GUIFontSize: 15
+  GUIColor: {r: 0.2924528, g: 0.2924528, b: 0.2924528, a: 0.39215687}
+  DoNotDestroyOnLoad: 0
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

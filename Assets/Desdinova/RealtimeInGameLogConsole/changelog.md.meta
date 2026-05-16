@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: 25085cf8a16a8ff4eaaa53164fdb4009
+TextScriptImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 212758
+  packageName: Realtime In Game Log Console
+  packageVersion: 1.0
+  assetPath: Assets/Desdinova/RealtimeInGameLogConsole/changelog.md
+  uploadId: 481383

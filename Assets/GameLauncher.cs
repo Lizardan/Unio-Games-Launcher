@@ -11,10 +11,8 @@ using Debug = UnityEngine.Debug;
 [System.Serializable]
 public class GameInfo
 {
-    public string gameName;
-    public string githubRepo;
-    public string executableName;
-    public string folderName;
+    public string gameName;      // "Kindoms of King"
+    public string githubRepo;    // "Lizardan/Kindoms-of-King"
 }
 
 public class GameLauncher : MonoBehaviour
@@ -22,9 +20,18 @@ public class GameLauncher : MonoBehaviour
     [Header("=== ИГРЫ ===")]
     [SerializeField] private List<GameInfo> games = new List<GameInfo>();
 
+    [Header("=== НАСТРОЙКИ ЛАУНЧЕРА ===")]
+    [SerializeField] private string launcherGithubUsername = "Lizardan";
+    [SerializeField] private string launcherGithubRepo = "Unio-Games-Launcher";
+
+    // UI элементы
     private Text titleText;
     private Text versionText;
     private Text launcherVersionText;
+    private Button launcherUpdateButton;
+    private Text launcherUpdateButtonText;
+    private GameObject launcherUpdateButtonGO;
+    private Image launcherProgressFill;   // зелёная заливка прогресса обновления лаунчера
     private Text statusText;
     private Button actionButton;
     private Text buttonText;
@@ -32,22 +39,35 @@ public class GameLauncher : MonoBehaviour
     private Text progressText;
     private GameObject progressPanel;
 
+    // Данные по играм
     private int selectedGameIndex = 0;
     private Dictionary<int, string> localVersions = new Dictionary<int, string>();
     private Dictionary<int, string> remoteVersions = new Dictionary<int, string>();
     private Dictionary<int, bool> gameInstalled = new Dictionary<int, bool>();
 
+    // Левая панель со списком игр
     private Transform gameListContent;
-    private List<GameObject> gameButtons = new List<GameObject>(); // только реальные игры
+    private List<GameObject> gameButtons = new List<GameObject>();
     private GameObject comingSoonCard;
 
     private string RootPath => Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
 
+    private string LAUNCHER_VERSION_API_URL => $"https://api.github.com/repos/{launcherGithubUsername}/{launcherGithubRepo}/releases/latest";
+    private string LAUNCHER_DOWNLOAD_URL => $"https://github.com/{launcherGithubUsername}/{launcherGithubRepo}/releases/latest/download/Launcher.zip";
+
     void Start()
     {
+        string[] args = System.Environment.GetCommandLineArgs();
+        if (args.Length > 1 && args[1] == "--update")
+        {
+            StartCoroutine(ReplaceAndRestart());
+            return;
+        }
+
         CreateUI();
         LoadAllLocalData();
         StartCoroutine(CheckAllRemoteVersions());
+        StartCoroutine(CheckLauncherUpdate());
     }
 
     void CreateUI()
@@ -80,7 +100,7 @@ public class GameLauncher : MonoBehaviour
         leftArea.transform.SetParent(panel.transform, false);
         RectTransform leftRect = leftArea.AddComponent<RectTransform>();
         leftRect.anchorMin = new Vector2(0, 0);
-        leftRect.anchorMax = new Vector2(0.125f, 1); // в 2 раза уже
+        leftRect.anchorMax = new Vector2(0.125f, 1);
         leftRect.offsetMin = Vector2.zero;
         leftRect.offsetMax = Vector2.zero;
         Image leftBg = leftArea.AddComponent<Image>();
@@ -103,7 +123,7 @@ public class GameLauncher : MonoBehaviour
         gtRect.sizeDelta = new Vector2(0, 24);
         gtRect.anchoredPosition = new Vector2(0, -8);
 
-        // Контейнер списка игр (без скролла)
+        // Контейнер списка игр
         GameObject listContainer = new GameObject("GameListContainer");
         listContainer.transform.SetParent(leftArea.transform, false);
         RectTransform lcRect = listContainer.AddComponent<RectTransform>();
@@ -111,13 +131,11 @@ public class GameLauncher : MonoBehaviour
         lcRect.anchorMax = new Vector2(1, 1);
         lcRect.offsetMin = new Vector2(3, 3);
         lcRect.offsetMax = new Vector2(-3, -35);
-
         VerticalLayoutGroup listLayout = listContainer.AddComponent<VerticalLayoutGroup>();
         listLayout.spacing = 4;
         listLayout.childAlignment = TextAnchor.UpperCenter;
         listLayout.childForceExpandWidth = true;
         listLayout.childForceExpandHeight = false;
-
         gameListContent = listContainer.transform;
 
         // ====== ПРАВАЯ ПАНЕЛЬ (7/8 ширины) ======
@@ -161,21 +179,82 @@ public class GameLauncher : MonoBehaviour
         versionRect.anchoredPosition = new Vector2(0, -95);
         versionRect.sizeDelta = new Vector2(300, 30);
 
-        // --- Подпись лаунчера и его версия ---
-        GameObject launcherInfoObj = new GameObject("LauncherInfo");
-        launcherInfoObj.transform.SetParent(rightArea.transform, false);
-        launcherVersionText = launcherInfoObj.AddComponent<Text>();
+        // --- Нижняя строка: лаунчер + кнопка обновления ---
+        GameObject bottomRow = new GameObject("BottomRow");
+        bottomRow.transform.SetParent(rightArea.transform, false);
+        RectTransform bottomRowRect = bottomRow.AddComponent<RectTransform>();
+        bottomRowRect.anchorMin = new Vector2(0, 0);
+        bottomRowRect.anchorMax = new Vector2(1, 0);
+        bottomRowRect.pivot = new Vector2(0, 0);
+        bottomRowRect.anchoredPosition = new Vector2(10, 10);
+        bottomRowRect.sizeDelta = new Vector2(-20, 24);
+        HorizontalLayoutGroup bottomLayout = bottomRow.AddComponent<HorizontalLayoutGroup>();
+        bottomLayout.childControlWidth = false;
+        bottomLayout.childControlHeight = false;
+        bottomLayout.spacing = 8;
+        bottomLayout.childAlignment = TextAnchor.MiddleLeft;
+        bottomLayout.childForceExpandWidth = false;
+        bottomLayout.childForceExpandHeight = false;
+
+        // Текст "Unio Games Launcher vX.Y.Z"
+        GameObject launcherTextGO = new GameObject("LauncherVersionText");
+        launcherTextGO.transform.SetParent(bottomRow.transform, false);
+        launcherVersionText = launcherTextGO.AddComponent<Text>();
         launcherVersionText.text = $"Unio Games Launcher v{Application.version}";
         launcherVersionText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         launcherVersionText.fontSize = 14;
         launcherVersionText.color = new Color(0.5f, 0.5f, 0.6f);
         launcherVersionText.alignment = TextAnchor.MiddleLeft;
-        RectTransform launcherRect = launcherInfoObj.GetComponent<RectTransform>();
-        launcherRect.anchorMin = new Vector2(0, 0);
-        launcherRect.anchorMax = new Vector2(0, 0);
-        launcherRect.pivot = new Vector2(0, 0);
-        launcherRect.anchoredPosition = new Vector2(10, 10);
-        launcherRect.sizeDelta = new Vector2(300, 24);
+        RectTransform lvtRect = launcherTextGO.GetComponent<RectTransform>();
+        lvtRect.sizeDelta = new Vector2(180, 24);
+
+        // Кнопка обновления лаунчера (100x20, изначально скрыта)
+        launcherUpdateButtonGO = new GameObject("LauncherUpdateButton");
+        launcherUpdateButtonGO.transform.SetParent(bottomRow.transform, false);
+        RectTransform lubRect = launcherUpdateButtonGO.AddComponent<RectTransform>();
+        lubRect.sizeDelta = new Vector2(100, 20);
+        LayoutElement luLayout = launcherUpdateButtonGO.AddComponent<LayoutElement>();
+        luLayout.minWidth = 100;
+        luLayout.preferredWidth = 100;
+        luLayout.minHeight = 20;
+        luLayout.preferredHeight = 20;
+        Image lubBg = launcherUpdateButtonGO.AddComponent<Image>();
+        lubBg.color = new Color(0.2f, 0.5f, 0.9f);
+        launcherUpdateButton = launcherUpdateButtonGO.AddComponent<Button>();
+
+        // Зелёная заливка прогресса
+        GameObject fillGO = new GameObject("ProgressFill");
+        fillGO.transform.SetParent(launcherUpdateButtonGO.transform, false);
+        fillGO.transform.SetAsLastSibling();
+        launcherProgressFill = fillGO.AddComponent<Image>();
+        launcherProgressFill.color = new Color(0.3f, 0.8f, 0.3f);
+        launcherProgressFill.type = Image.Type.Filled;
+        launcherProgressFill.fillMethod = Image.FillMethod.Horizontal;
+        launcherProgressFill.fillOrigin = 0;
+        launcherProgressFill.fillAmount = 0;
+        RectTransform pfRect = fillGO.GetComponent<RectTransform>();
+        pfRect.anchorMin = Vector2.zero;
+        pfRect.anchorMax = Vector2.one;
+        pfRect.offsetMin = Vector2.zero;
+        pfRect.offsetMax = Vector2.zero;
+        fillGO.SetActive(false);
+
+        // Текст кнопки
+        GameObject lubTextObj = new GameObject("Text");
+        lubTextObj.transform.SetParent(launcherUpdateButtonGO.transform, false);
+        launcherUpdateButtonText = lubTextObj.AddComponent<Text>();
+        launcherUpdateButtonText.text = "Update";
+        launcherUpdateButtonText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        launcherUpdateButtonText.fontSize = 12;
+        launcherUpdateButtonText.color = Color.white;
+        launcherUpdateButtonText.alignment = TextAnchor.MiddleCenter;
+        RectTransform lubTextRect = lubTextObj.GetComponent<RectTransform>();
+        lubTextRect.anchorMin = Vector2.zero;
+        lubTextRect.anchorMax = Vector2.one;
+        lubTextRect.sizeDelta = Vector2.zero;
+
+        launcherUpdateButton.onClick.AddListener(() => StartCoroutine(DownloadLauncherUpdate()));
+        launcherUpdateButtonGO.SetActive(false);
 
         // --- Статусное сообщение ---
         GameObject statusObj = new GameObject("Status");
@@ -281,17 +360,15 @@ public class GameLauncher : MonoBehaviour
     {
         for (int i = 0; i < games.Count; i++)
         {
-            string vPath = Path.Combine(RootPath, $"{games[i].folderName}_version.txt");
+            string vPath = Path.Combine(RootPath, $"{games[i].gameName}_version.txt");
             if (File.Exists(vPath))
                 localVersions[i] = File.ReadAllText(vPath).Trim();
-            string gPath = Path.Combine(RootPath, games[i].folderName);
+            string gPath = Path.Combine(RootPath, games[i].gameName);
             gameInstalled[i] = Directory.Exists(gPath);
         }
         RefreshGameList();
         if (games.Count > 0)
             SelectGame(0);
-        else
-            UpdateUIState(); // покажет "Нет игр"
     }
 
     IEnumerator CheckAllRemoteVersions()
@@ -332,14 +409,11 @@ public class GameLauncher : MonoBehaviour
 
     void RefreshGameList()
     {
-        // Удаляем старые кнопки реальных игр
         foreach (var btn in gameButtons) Destroy(btn);
         gameButtons.Clear();
         if (comingSoonCard) Destroy(comingSoonCard);
-
         if (gameListContent == null) return;
 
-        // Создаём кнопки для реальных игр
         for (int i = 0; i < games.Count; i++)
         {
             int index = i;
@@ -372,7 +446,7 @@ public class GameLauncher : MonoBehaviour
             gameButtons.Add(card);
         }
 
-        // Добавляем заглушку "Coming Soon..."
+        // Заглушка "Coming Soon..."
         comingSoonCard = new GameObject("ComingSoon");
         comingSoonCard.transform.SetParent(gameListContent, false);
         RectTransform csRect = comingSoonCard.AddComponent<RectTransform>();
@@ -380,10 +454,8 @@ public class GameLauncher : MonoBehaviour
         LayoutElement csLayout = comingSoonCard.AddComponent<LayoutElement>();
         csLayout.minHeight = 36;
         csLayout.preferredHeight = 36;
-
         Image csBg = comingSoonCard.AddComponent<Image>();
         csBg.color = new Color(0.1f, 0.1f, 0.15f);
-        // Кнопку не добавляем — карточка неактивна
 
         GameObject csText = new GameObject("Text");
         csText.transform.SetParent(comingSoonCard.transform, false);
@@ -466,8 +538,8 @@ public class GameLauncher : MonoBehaviour
         progressPanel.SetActive(true);
         actionButton.interactable = false;
         GameInfo game = games[index];
-        string url = $"https://github.com/{game.githubRepo}/releases/latest/download/{game.folderName.Replace(" ", "")}.zip";
-        string savePath = Path.Combine(RootPath, $"{game.folderName.Replace(" ", "")}.zip");
+        string url = $"https://github.com/{game.githubRepo}/releases/latest/download/{game.gameName.Replace(" ", "")}.zip";
+        string savePath = Path.Combine(RootPath, $"{game.gameName.Replace(" ", "")}.zip");
 
         using (UnityWebRequest www = UnityWebRequest.Get(url))
         {
@@ -529,7 +601,7 @@ public class GameLauncher : MonoBehaviour
 
         if (ExtractGame(index, filePath))
         {
-            File.WriteAllText(Path.Combine(RootPath, $"{games[index].folderName}_version.txt"), remoteVersions[index]);
+            File.WriteAllText(Path.Combine(RootPath, $"{games[index].gameName}_version.txt"), remoteVersions[index]);
             File.Delete(filePath);
             gameInstalled[index] = true;
             localVersions[index] = remoteVersions[index];
@@ -553,7 +625,7 @@ public class GameLauncher : MonoBehaviour
     {
         try
         {
-            string extractPath = Path.Combine(RootPath, games[index].folderName);
+            string extractPath = Path.Combine(RootPath, games[index].gameName);
             if (Directory.Exists(extractPath))
                 Directory.Delete(extractPath, true);
             Directory.CreateDirectory(extractPath);
@@ -570,7 +642,7 @@ public class GameLauncher : MonoBehaviour
 
     void LaunchGame(int index)
     {
-        string gamePath = Path.Combine(RootPath, games[index].folderName, games[index].executableName);
+        string gamePath = Path.Combine(RootPath, games[index].gameName, games[index].gameName + ".exe");
         if (File.Exists(gamePath))
         {
             try
@@ -590,5 +662,161 @@ public class GameLauncher : MonoBehaviour
             actionButton.onClick.RemoveAllListeners();
             actionButton.onClick.AddListener(() => StartCoroutine(DownloadGame(index)));
         }
+    }
+
+    // ======== ОБНОВЛЕНИЕ ЛАУНЧЕРА ========
+    IEnumerator CheckLauncherUpdate()
+    {
+        using (UnityWebRequest www = UnityWebRequest.Get(LAUNCHER_VERSION_API_URL))
+        {
+            www.SetRequestHeader("Accept", "application/vnd.github.v3+json");
+            yield return www.SendWebRequest();
+            if (www.result == UnityWebRequest.Result.Success)
+            {
+                string json = www.downloadHandler.text;
+                string remoteLauncherVersion = ExtractTagName(json);
+                if (remoteLauncherVersion != null && remoteLauncherVersion != $"v{Application.version}")
+                {
+                    launcherProgressFill.fillAmount = 0;
+                    launcherUpdateButtonText.gameObject.SetActive(true);
+                    launcherUpdateButtonText.text = $"Update to {remoteLauncherVersion}";
+                    launcherUpdateButton.interactable = true;
+                    launcherUpdateButtonGO.GetComponent<Image>().color = new Color(0.2f, 0.5f, 0.9f);
+                    launcherProgressFill.gameObject.SetActive(false);
+                    launcherUpdateButtonText.gameObject.SetActive(true);
+                    launcherUpdateButtonText.text = $"Update to {remoteLauncherVersion}";
+                    launcherUpdateButtonGO.SetActive(true);
+                }
+            }
+        }
+    }
+
+    IEnumerator DownloadLauncherUpdate()
+    {
+        launcherUpdateButton.interactable = false;
+        launcherUpdateButtonText.text = "0%";
+        launcherProgressFill.fillAmount = 0;
+        launcherProgressFill.gameObject.SetActive(true);
+
+        string savePath = Path.Combine(Application.temporaryCachePath, "LauncherUpdate.zip");
+        Debug.Log($"[LauncherUpdate] Downloading from: {LAUNCHER_DOWNLOAD_URL}");
+        Debug.Log($"[LauncherUpdate] Save path: {savePath}");
+
+        using (UnityWebRequest www = UnityWebRequest.Get(LAUNCHER_DOWNLOAD_URL))
+        {
+            DownloadHandlerFile dh = new DownloadHandlerFile(savePath);
+            dh.removeFileOnAbort = true;
+            www.downloadHandler = dh;
+            www.SendWebRequest();
+
+            while (!www.isDone)
+            {
+                float progress = www.downloadProgress;
+                launcherProgressFill.fillAmount = progress;
+                launcherUpdateButtonText.text = $"{Mathf.Round(progress * 100)}%";
+                yield return null;
+            }
+
+            Debug.Log($"[LauncherUpdate] Download completed. Result: {www.result}, Size: {new FileInfo(savePath).Length}");
+
+            if (www.result == UnityWebRequest.Result.Success)
+            {
+                launcherProgressFill.fillAmount = 1f;
+                launcherUpdateButtonText.text = "100%";
+
+                string tempDir = Path.Combine(Application.temporaryCachePath, "NewLauncher");
+                Debug.Log($"[LauncherUpdate] Extracting to: {tempDir}");
+
+                try
+                {
+                    if (Directory.Exists(tempDir))
+                    {
+                        Debug.Log("[LauncherUpdate] Temp directory already exists, deleting...");
+                        Directory.Delete(tempDir, true);
+                    }
+                    System.IO.Compression.ZipFile.ExtractToDirectory(savePath, tempDir);
+                    File.Delete(savePath);
+                    Debug.Log("[LauncherUpdate] Extraction successful, zip deleted.");
+                }
+                catch (System.Exception e)
+                {
+                    Debug.LogError($"[LauncherUpdate] Extraction failed: {e.Message}");
+                    launcherProgressFill.gameObject.SetActive(false);
+                    launcherUpdateButtonText.text = "Error";
+                    launcherUpdateButton.interactable = true;
+                    yield break;
+                }
+
+                string newExe = Path.Combine(tempDir, "Unio Games Launcher.exe");
+                Debug.Log($"[LauncherUpdate] Looking for new exe at: {newExe}");
+                Debug.Log($"[LauncherUpdate] File exists: {File.Exists(newExe)}");
+
+                // Выведем все файлы в tempDir для диагностики
+                string[] files = Directory.GetFiles(tempDir, "*", SearchOption.AllDirectories);
+                Debug.Log($"[LauncherUpdate] Files in tempDir ({files.Length}):");
+                foreach (string f in files)
+                {
+                    Debug.Log($"  {f}");
+                }
+
+                if (File.Exists(newExe))
+                {
+                    Debug.Log("[LauncherUpdate] Starting new launcher with --update flag");
+                    try
+                    {
+                        Process.Start(newExe, "--update");
+                        Debug.Log("[LauncherUpdate] New process started, quitting...");
+                        Application.Quit();
+                    }
+                    catch (System.Exception e)
+                    {
+                        Debug.LogError($"[LauncherUpdate] Failed to start new launcher: {e.Message}");
+                        launcherProgressFill.gameObject.SetActive(false);
+                        launcherUpdateButtonText.text = "Error";
+                        launcherUpdateButton.interactable = true;
+                    }
+                }
+                else
+                {
+                    Debug.LogError("[LauncherUpdate] New exe not found!");
+                    launcherProgressFill.gameObject.SetActive(false);
+                    launcherUpdateButtonText.text = "Error";
+                    launcherUpdateButton.interactable = true;
+                }
+            }
+            else
+            {
+                Debug.LogError($"[LauncherUpdate] Download failed: {www.error}");
+                launcherProgressFill.gameObject.SetActive(false);
+                launcherUpdateButtonText.text = "Error";
+                launcherUpdateButton.interactable = true;
+            }
+        }
+    }
+
+    IEnumerator ReplaceAndRestart()
+    {
+        yield return null;
+        string currentDir = RootPath;
+        string tempDir = Path.Combine(Application.temporaryCachePath, "NewLauncher");
+        if (!Directory.Exists(tempDir))
+        {
+            Process.Start(Path.Combine(currentDir, "Unio Games Launcher.exe"));
+            Application.Quit();
+            yield break;
+        }
+
+        foreach (string file in Directory.GetFiles(tempDir, "*", SearchOption.AllDirectories))
+        {
+            string relativePath = file.Substring(tempDir.Length + 1);
+            string dest = Path.Combine(currentDir, relativePath);
+            string destDir = Path.GetDirectoryName(dest);
+            if (!Directory.Exists(destDir)) Directory.CreateDirectory(destDir);
+            File.Copy(file, dest, true);
+        }
+
+        Directory.Delete(tempDir, true);
+        Process.Start(Path.Combine(currentDir, "Unio Games Launcher.exe"));
+        Application.Quit();
     }
 }

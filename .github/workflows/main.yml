@@ -62,7 +62,7 @@ jobs:
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
           targetPlatform: StandaloneWindows64
-          buildName: UnioGamesLauncher    # имя exe
+          buildName: Unio Games Launcher    # имя exe
 
       - name: Zip the build
         run: |
