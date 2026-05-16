@@ -1,0 +1,95 @@
+name: Auto Build and Release Launcher
+
+on:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  bump_version:
+    name: Bump version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.set_version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 2
+
+      - name: Bump patch version
+        id: set_version
+        run: |
+          CURRENT=$(grep -Po 'bundleVersion: \K.+' ProjectSettings/ProjectSettings.asset)
+          echo "Current version: $CURRENT"
+          IFS='.' read -r major minor patch <<< "$CURRENT"
+          NEW_PATCH=$((patch + 1))
+          NEW_VERSION="$major.$minor.$NEW_PATCH"
+          echo "New version: $NEW_VERSION"
+          sed -i "s/bundleVersion: $CURRENT/bundleVersion: $NEW_VERSION/" ProjectSettings/ProjectSettings.asset
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ProjectSettings/ProjectSettings.asset
+          git commit -m "Bump version to $NEW_VERSION [skip ci]"
+          git push
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+  build:
+    name: Build for Windows
+    needs: bump_version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ needs.bump_version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Cache Library
+        uses: actions/cache@v5
+        with:
+          path: Library
+          key: Library-${{ runner.os }}-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: Library-${{ runner.os }}-
+
+      - name: Build Unity project
+        uses: game-ci/unity-builder@v5
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          targetPlatform: StandaloneWindows64
+          buildName: UnioGamesLauncher    # имя exe
+
+      - name: Zip the build
+        run: |
+          cd build/StandaloneWindows64
+          zip -r ../../Launcher.zip .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: Launcher-${{ needs.bump_version.outputs.version }}
+          path: Launcher.zip
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: Launcher-${{ needs.build.outputs.version }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ needs.build.outputs.version }}
+          name: Release v${{ needs.build.outputs.version }}
+          files: Launcher.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
