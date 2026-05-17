@@ -47,6 +47,15 @@ jobs:
           ref: main
           fetch-depth: 0
 
+      # Кеширование Library для ускорения повторных сборок
+      - name: Cache Library
+        uses: actions/cache@v5
+        with:
+          path: Library
+          key: Library-${{ runner.os }}-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Library-${{ runner.os }}-
+
       - name: Build Unity project
         uses: game-ci/unity-builder@v5
         env:
@@ -56,8 +65,8 @@ jobs:
         with:
           targetPlatform: StandaloneWindows64
           buildName: Unio Games Launcher
-          version: ${{ needs.bump_version.outputs.version }}   # <-- явно передаём версию
-          versioning: None                                     # <-- отключаем автоматическое определение
+          version: ${{ needs.bump_version.outputs.version }}
+          versioning: None                # ← главное исправление
           allowDirtyBuild: true
 
       - name: Zip the build
