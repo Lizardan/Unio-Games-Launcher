@@ -448,6 +448,21 @@ public class GameLauncher : MonoBehaviour
         return json.Substring(startQuote + 1, endQuote - startQuote - 1);
     }
 
+    // Возвращает массив [major, minor, patch] или null
+    int[] ParseVersion(string version)
+    {
+        if (string.IsNullOrEmpty(version)) return null;
+        version = version.TrimStart('v'); // убираем 'v' если есть
+        string[] parts = version.Split('.');
+        if (parts.Length != 3) return null;
+        int[] nums = new int[3];
+        if (int.TryParse(parts[0], out nums[0]) &&
+            int.TryParse(parts[1], out nums[1]) &&
+            int.TryParse(parts[2], out nums[2]))
+            return nums;
+        return null;
+    }
+
     void RefreshGameList()
     {
         foreach (var btn in gameButtons) Destroy(btn);
@@ -717,15 +732,33 @@ public class GameLauncher : MonoBehaviour
             {
                 string json = www.downloadHandler.text;
                 string remoteLauncherVersion = ExtractTagName(json);
-                if (remoteLauncherVersion != null && remoteLauncherVersion != $"v{Application.version}")
+                if (remoteLauncherVersion != null)
                 {
-                    launcherButtonBg.enabled = true;
-                    launcherButtonBg.color = new Color(0.2f, 0.5f, 0.9f); // синий
-                    launcherButtonMainText.gameObject.SetActive(true);
-                    launcherButtonMainText.text = $"Update to {remoteLauncherVersion}";
-                    launcherProgressContainer.SetActive(false);
-                    launcherUpdateButton.interactable = true;
-                    launcherUpdateButtonGO.SetActive(true);
+                    // Сравниваем версии как числа
+                    int[] localVer = ParseVersion(Application.version);
+                    int[] remoteVer = ParseVersion(remoteLauncherVersion);
+
+                    bool updateAvailable = false;
+                    if (localVer != null && remoteVer != null)
+                    {
+                        if (remoteVer[0] > localVer[0])
+                            updateAvailable = true;
+                        else if (remoteVer[0] == localVer[0] && remoteVer[1] > localVer[1])
+                            updateAvailable = true;
+                        else if (remoteVer[0] == localVer[0] && remoteVer[1] == localVer[1] && remoteVer[2] > localVer[2])
+                            updateAvailable = true;
+                    }
+
+                    if (updateAvailable)
+                    {
+                        launcherButtonBg.enabled = true;
+                        launcherButtonBg.color = new Color(0.2f, 0.5f, 0.9f); // синий
+                        launcherButtonMainText.gameObject.SetActive(true);
+                        launcherButtonMainText.text = $"Update to {remoteLauncherVersion}";
+                        launcherProgressContainer.SetActive(false);
+                        launcherUpdateButton.interactable = true;
+                        launcherUpdateButtonGO.SetActive(true);
+                    }
                 }
             }
         }
