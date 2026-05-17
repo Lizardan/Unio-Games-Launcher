@@ -5,7 +5,6 @@ on:
     branches: [ main, master ]
 
 jobs:
-  # === Повышение версии (bump patch) ===
   bump_version:
     name: Bump version
     runs-on: ubuntu-latest
@@ -35,7 +34,6 @@ jobs:
           git push
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
-  # === Сборка проекта (БЕЗ КЕША Library) ===
   build:
     name: Build for Windows
     needs: bump_version
@@ -49,16 +47,14 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      # Кеширование отключено, чтобы версия точно не бралась из старого кеша
-      # При необходимости можно раскомментировать блок ниже, когда проблема с версией будет решена
-      # - name: Cache Library
-      #   uses: actions/cache@v5
-      #   with:
-      #     path: Library
-      #     key: Library-${{ runner.os }}-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
-      #     restore-keys: |
-      #       Library-${{ runner.os }}-
+      # Явно проставляем новую версию в файл, чтобы Unity её увидел
+      - name: Set version in ProjectSettings
+        run: |
+          NEW_VERSION="${{ needs.bump_version.outputs.version }}"
+          sed -i "s/bundleVersion:.*/bundleVersion: $NEW_VERSION/" ProjectSettings/ProjectSettings.asset
+          echo "ProjectSettings.asset updated with version $NEW_VERSION"
 
+      # Сборка: без кеша Library, с прямым указанием версии и разрешением грязной сборки
       - name: Build Unity project
         uses: game-ci/unity-builder@v5
         env:
@@ -68,6 +64,8 @@ jobs:
         with:
           targetPlatform: StandaloneWindows64
           buildName: Unio Games Launcher
+          version: ${{ needs.bump_version.outputs.version }}   # <-- принудительная версия
+          allowDirtyBuild: true                                # разрешаем изменённый ProjectSettings
 
       - name: Zip the build
         run: |
@@ -80,7 +78,6 @@ jobs:
           name: Launcher-${{ needs.bump_version.outputs.version }}
           path: Launcher.zip
 
-  # === Создание релиза ===
   release:
     name: Create Release
     needs: build
