@@ -57,12 +57,14 @@ public class GameLauncher : MonoBehaviour
 
     void Start()
     {
-        string[] args = System.Environment.GetCommandLineArgs();
-        if (args.Length > 1 && args[1] == "--update")
-        {
-            StartCoroutine(ReplaceAndRestart());
-            return;
-        }
+        // string[] args = System.Environment.GetCommandLineArgs();
+        // if (args.Length > 1 && args[1] == "--update")
+        // {
+        //     // Если передан путь к временной папке, используем его
+        //     string updateTempDir = args.Length > 2 ? args[2].Trim('"') : null;
+        //     StartCoroutine(ReplaceAndRestart(updateTempDir));
+        //     return;
+        // }
 
         CreateUI();
         LoadAllLocalData();
@@ -698,10 +700,16 @@ public class GameLauncher : MonoBehaviour
         launcherProgressFill.fillAmount = 0;
         launcherProgressFill.gameObject.SetActive(true);
 
-        string savePath = Path.Combine(Application.temporaryCachePath, "LauncherUpdate.zip");
-        Debug.Log($"[LauncherUpdate] Downloading from: {LAUNCHER_DOWNLOAD_URL}");
-        Debug.Log($"[LauncherUpdate] Save path: {savePath}");
+        // Временные папки
+        string tempDir = Path.Combine(Application.temporaryCachePath, "LauncherUpdate");
+        string savePath = Path.Combine(tempDir, "Launcher.zip");
+        string extractDir = Path.Combine(tempDir, "NewLauncher");
 
+        Directory.CreateDirectory(tempDir);
+
+        Debug.Log($"[LauncherUpdate] Downloading from: {LAUNCHER_DOWNLOAD_URL}");
+
+        // Скачивание
         using (UnityWebRequest www = UnityWebRequest.Get(LAUNCHER_DOWNLOAD_URL))
         {
             DownloadHandlerFile dh = new DownloadHandlerFile(savePath);
@@ -717,106 +725,79 @@ public class GameLauncher : MonoBehaviour
                 yield return null;
             }
 
-            Debug.Log($"[LauncherUpdate] Download completed. Result: {www.result}, Size: {new FileInfo(savePath).Length}");
-
-            if (www.result == UnityWebRequest.Result.Success)
-            {
-                launcherProgressFill.fillAmount = 1f;
-                launcherUpdateButtonText.text = "100%";
-
-                string tempDir = Path.Combine(Application.temporaryCachePath, "NewLauncher");
-                Debug.Log($"[LauncherUpdate] Extracting to: {tempDir}");
-
-                try
-                {
-                    if (Directory.Exists(tempDir))
-                    {
-                        Debug.Log("[LauncherUpdate] Temp directory already exists, deleting...");
-                        Directory.Delete(tempDir, true);
-                    }
-                    System.IO.Compression.ZipFile.ExtractToDirectory(savePath, tempDir);
-                    File.Delete(savePath);
-                    Debug.Log("[LauncherUpdate] Extraction successful, zip deleted.");
-                }
-                catch (System.Exception e)
-                {
-                    Debug.LogError($"[LauncherUpdate] Extraction failed: {e.Message}");
-                    launcherProgressFill.gameObject.SetActive(false);
-                    launcherUpdateButtonText.text = "Error";
-                    launcherUpdateButton.interactable = true;
-                    yield break;
-                }
-
-                string newExe = Path.Combine(tempDir, "Unio Games Launcher.exe");
-                Debug.Log($"[LauncherUpdate] Looking for new exe at: {newExe}");
-                Debug.Log($"[LauncherUpdate] File exists: {File.Exists(newExe)}");
-
-                // Выведем все файлы в tempDir для диагностики
-                string[] files = Directory.GetFiles(tempDir, "*", SearchOption.AllDirectories);
-                Debug.Log($"[LauncherUpdate] Files in tempDir ({files.Length}):");
-                foreach (string f in files)
-                {
-                    Debug.Log($"  {f}");
-                }
-
-                if (File.Exists(newExe))
-                {
-                    Debug.Log("[LauncherUpdate] Starting new launcher with --update flag");
-                    try
-                    {
-                        Process.Start(newExe, "--update");
-                        Debug.Log("[LauncherUpdate] New process started, quitting...");
-                        Application.Quit();
-                    }
-                    catch (System.Exception e)
-                    {
-                        Debug.LogError($"[LauncherUpdate] Failed to start new launcher: {e.Message}");
-                        launcherProgressFill.gameObject.SetActive(false);
-                        launcherUpdateButtonText.text = "Error";
-                        launcherUpdateButton.interactable = true;
-                    }
-                }
-                else
-                {
-                    Debug.LogError("[LauncherUpdate] New exe not found!");
-                    launcherProgressFill.gameObject.SetActive(false);
-                    launcherUpdateButtonText.text = "Error";
-                    launcherUpdateButton.interactable = true;
-                }
-            }
-            else
+            if (www.result != UnityWebRequest.Result.Success)
             {
                 Debug.LogError($"[LauncherUpdate] Download failed: {www.error}");
                 launcherProgressFill.gameObject.SetActive(false);
                 launcherUpdateButtonText.text = "Error";
                 launcherUpdateButton.interactable = true;
+                yield break;
             }
         }
-    }
 
-    IEnumerator ReplaceAndRestart()
-    {
-        yield return null;
-        string currentDir = RootPath;
-        string tempDir = Path.Combine(Application.temporaryCachePath, "NewLauncher");
-        if (!Directory.Exists(tempDir))
+        Debug.Log("[LauncherUpdate] Download complete, extracting...");
+
+        // Распаковка
+        try
         {
-            Process.Start(Path.Combine(currentDir, "Unio Games Launcher.exe"));
-            Application.Quit();
+            if (Directory.Exists(extractDir))
+                Directory.Delete(extractDir, true);
+            System.IO.Compression.ZipFile.ExtractToDirectory(savePath, extractDir);
+            File.Delete(savePath);
+            Debug.Log("[LauncherUpdate] Extraction successful.");
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError("[LauncherUpdate] Extraction failed: " + e.Message);
+            launcherProgressFill.gameObject.SetActive(false);
+            launcherUpdateButtonText.text = "Error";
+            launcherUpdateButton.interactable = true;
             yield break;
         }
 
-        foreach (string file in Directory.GetFiles(tempDir, "*", SearchOption.AllDirectories))
+        // Проверяем наличие нового лаунчера
+        string currentDir = RootPath;
+        string newExe = Path.Combine(extractDir, "Unio Games Launcher.exe");
+        if (!File.Exists(newExe))
         {
-            string relativePath = file.Substring(tempDir.Length + 1);
-            string dest = Path.Combine(currentDir, relativePath);
-            string destDir = Path.GetDirectoryName(dest);
-            if (!Directory.Exists(destDir)) Directory.CreateDirectory(destDir);
-            File.Copy(file, dest, true);
+            Debug.LogError("[LauncherUpdate] New exe not found in archive!");
+            launcherProgressFill.gameObject.SetActive(false);
+            launcherUpdateButtonText.text = "Error";
+            launcherUpdateButton.interactable = true;
+            yield break;
         }
 
-        Directory.Delete(tempDir, true);
-        Process.Start(Path.Combine(currentDir, "Unio Games Launcher.exe"));
-        Application.Quit();
+        // Удаляем соседние пустые папки в Temp (чистота)
+        string tempParent = Path.GetDirectoryName(tempDir);        // Unio Games Launcher
+        string tempGrandParent = Path.GetDirectoryName(tempParent); // Unio Games
+
+        // Формируем одну команду для cmd.exe
+        string launcherFullPath = Path.Combine(currentDir, "Unio Games Launcher.exe");
+        string cmd = $"/c timeout /t 3 /nobreak >nul & " +
+                     $"xcopy \"{extractDir}\\*\" \"{currentDir}\" /E /Y /C /Q & " +
+                     $"rmdir /s /q \"{tempDir}\" & " +
+                     $"rmdir /q \"{tempParent}\" 2>nul & " +
+                     $"rmdir /q \"{tempGrandParent}\" 2>nul & " +
+                     $"start \"\" \"{launcherFullPath}\"";
+
+        Debug.Log("[LauncherUpdate] Starting cmd update process...");
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = cmd,
+                WindowStyle = ProcessWindowStyle.Hidden,
+                CreateNoWindow = true
+            });
+            Application.Quit();
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError("[LauncherUpdate] Failed to start cmd: " + e.Message);
+            launcherProgressFill.gameObject.SetActive(false);
+            launcherUpdateButtonText.text = "Error";
+            launcherUpdateButton.interactable = true;
+        }
     }
 }
