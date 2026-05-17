@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.set_version.outputs.version }}
+      commit_sha: ${{ steps.commit_sha.outputs.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -34,6 +35,10 @@ jobs:
           git push
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
+      - name: Get commit SHA
+        id: commit_sha
+        run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
   build:
     name: Build for Windows
     needs: bump_version
@@ -44,7 +49,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: main
+          ref: ${{ needs.bump_version.outputs.commit_sha }}
           fetch-depth: 0
 
       - name: Cache Library
@@ -62,7 +67,7 @@ jobs:
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
           targetPlatform: StandaloneWindows64
-          buildName: Unio Games Launcher    # имя exe
+          buildName: Unio Games Launcher
 
       - name: Zip the build
         run: |
