@@ -224,7 +224,7 @@ public class GameLauncher : MonoBehaviour
         launcherVersionText.color = new Color(0.5f, 0.5f, 0.6f);
         launcherVersionText.alignment = TextAnchor.MiddleLeft;
         RectTransform lvtRect = launcherTextGO.GetComponent<RectTransform>();
-        lvtRect.sizeDelta = new Vector2(180, 24);
+        lvtRect.sizeDelta = new Vector2(190, 24);
 
         // Кнопка обновления лаунчера (100x20, изначально скрыта)
         launcherUpdateButtonGO = new GameObject("LauncherUpdateButton");
