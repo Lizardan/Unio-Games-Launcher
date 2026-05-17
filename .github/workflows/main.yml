@@ -5,32 +5,28 @@ on:
     branches: [ main, master ]
 
 jobs:
-  bump_version:
-    name: Calculate next version
+  # 1. Генерируем новую версию на основе даты/времени
+  generate_version:
+    name: Generate version
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.set_version.outputs.version }}
+      version: ${{ steps.gen_version.outputs.version }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Calculate next patch version
-        id: set_version
+      - name: Generate version from date
+        id: gen_version
         run: |
-          CURRENT=$(grep -Po 'bundleVersion: \K.+' ProjectSettings/ProjectSettings.asset)
-          echo "Current version: $CURRENT"
-          IFS='.' read -r major minor patch <<< "$CURRENT"
-          NEW_PATCH=$((patch + 1))
-          NEW_VERSION="$major.$minor.$NEW_PATCH"
-          echo "Next version: $NEW_VERSION"
-          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          # Формат: 0.0.ГГММДДЧЧММ (без пробелов, всегда возрастает)
+          VER="0.0.$(date -u +'%y%m%d%H%M')"
+          echo "Generated version: $VER"
+          echo "version=$VER" >> $GITHUB_OUTPUT
 
+  # 2. Собираем проект
   build:
     name: Build for Windows
-    needs: bump_version
+    needs: generate_version
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ needs.bump_version.outputs.version }}
+      version: ${{ needs.generate_version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -38,18 +34,10 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Replace version in ProjectSettings
-        run: |
-          NEW_VERSION="${{ needs.bump_version.outputs.version }}"
-          sed -i "s/bundleVersion:.*/bundleVersion: $NEW_VERSION/" ProjectSettings/ProjectSettings.asset
-          echo "Updated ProjectSettings.asset with version $NEW_VERSION"
-
-      - name: Cache Library
-        uses: actions/cache@v5
-        with:
-          path: Library
-          key: Library-${{ runner.os }}-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
-          restore-keys: Library-${{ runner.os }}-
+      # ВАЖНО: НЕ используем Cache Library
+      # Удаляем старую Library, если она осталась
+      - name: Clean old Library
+        run: rm -rf Library
 
       - name: Build Unity project
         uses: game-ci/unity-builder@v5
@@ -60,7 +48,7 @@ jobs:
         with:
           targetPlatform: StandaloneWindows64
           buildName: Unio Games Launcher
-          allowDirtyBuild: true          # ← правильный параметр
+          version: ${{ needs.generate_version.outputs.version }}
 
       - name: Zip the build
         run: |
@@ -70,15 +58,14 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Launcher-${{ needs.bump_version.outputs.version }}
+          name: Launcher-${{ needs.generate_version.outputs.version }}
           path: Launcher.zip
 
+  # 3. Публикуем релиз
   release:
     name: Create Release
     needs: build
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ needs.build.outputs.version }}
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v8
@@ -93,25 +80,3 @@ jobs:
           files: Launcher.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  update_version_in_repo:
-    name: Update version in repository
-    needs: release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          ref: main
-          fetch-depth: 0
-
-      - name: Commit new version to ProjectSettings
-        run: |
-          NEW_VERSION="${{ needs.release.outputs.version }}"
-          sed -i "s/bundleVersion:.*/bundleVersion: $NEW_VERSION/" ProjectSettings/ProjectSettings.asset
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add ProjectSettings/ProjectSettings.asset
-          git commit -m "Set version to $NEW_VERSION [skip ci]"
-          git push
