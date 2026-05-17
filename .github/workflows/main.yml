@@ -5,37 +5,30 @@ on:
     branches: [ main, master ]
 
 jobs:
-  # 1. Вычисляем новую версию, но НЕ меняем файлы в репозитории
-  bump_version:
-    name: Calculate next version
+  # 1. Определяем текущую версию (НЕ повышаем)
+  get_version:
+    name: Get current version
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.set_version.outputs.version }}
+      version: ${{ steps.get_version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 2
 
-      - name: Calculate next patch version
-        id: set_version
+      - name: Read current version
+        id: get_version
         run: |
           CURRENT=$(grep -Po 'bundleVersion: \K.+' ProjectSettings/ProjectSettings.asset)
           echo "Current version: $CURRENT"
-          IFS='.' read -r major minor patch <<< "$CURRENT"
-          NEW_PATCH=$((patch + 1))
-          NEW_VERSION="$major.$minor.$NEW_PATCH"
-          echo "New version: $NEW_VERSION"
-          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "version=$CURRENT" >> $GITHUB_OUTPUT
 
-  # 2. Собираем проект, используя вычисленную версию
+  # 2. Собираем проект с текущей версией
   build:
     name: Build for Windows
-    needs: bump_version
+    needs: get_version
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ needs.bump_version.outputs.version }}
+      version: ${{ needs.get_version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -59,7 +52,7 @@ jobs:
         with:
           targetPlatform: StandaloneWindows64
           buildName: Unio Games Launcher
-          version: ${{ needs.bump_version.outputs.version }}   # <-- передаём версию прямо в билд
+          # Версия будет автоматически взята из ProjectSettings (без явного указания version)
 
       - name: Zip the build
         run: |
@@ -69,10 +62,10 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Launcher-${{ needs.bump_version.outputs.version }}
+          name: Launcher-${{ needs.get_version.outputs.version }}
           path: Launcher.zip
 
-  # 3. Публикуем релиз
+  # 3. Создаём релиз с текущей версией
   release:
     name: Create Release
     needs: build
@@ -94,9 +87,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # 4. Обновляем версию в репозитории (когда всё уже готово)
-  update_version_in_repo:
-    name: Update version in ProjectSettings
+  # 4. Повышаем версию для следующей сборки
+  bump_version:
+    name: Bump version for next build
     needs: release
     runs-on: ubuntu-latest
     steps:
@@ -107,13 +100,15 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Bump version in file
+      - name: Bump patch version
         run: |
           CURRENT=$(grep -Po 'bundleVersion: \K.+' ProjectSettings/ProjectSettings.asset)
-          NEW_VERSION="${{ needs.release.outputs.version }}"
+          IFS='.' read -r major minor patch <<< "$CURRENT"
+          NEW_PATCH=$((patch + 1))
+          NEW_VERSION="$major.$minor.$NEW_PATCH"
           sed -i "s/bundleVersion: $CURRENT/bundleVersion: $NEW_VERSION/" ProjectSettings/ProjectSettings.asset
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add ProjectSettings/ProjectSettings.asset
-          git commit -m "Update version to $NEW_VERSION [skip ci]"
+          git commit -m "Bump version to $NEW_VERSION [skip ci]"
           git push
