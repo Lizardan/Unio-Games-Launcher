@@ -5,7 +5,6 @@ on:
     branches: [ main, master ]
 
 jobs:
-  # 1. Вычисляем НОВУЮ версию
   bump_version:
     name: Calculate next version
     runs-on: ubuntu-latest
@@ -26,7 +25,6 @@ jobs:
           echo "Next version: $NEW_VERSION"
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
-  # 2. Собираем проект, предварительно записав новую версию в файл
   build:
     name: Build for Windows
     needs: bump_version
@@ -62,7 +60,7 @@ jobs:
         with:
           targetPlatform: StandaloneWindows64
           buildName: Unio Games Launcher
-          # version не передаём, она уже в файле
+          allowDirty: true   # разрешает незакоммиченные изменения
 
       - name: Zip the build
         run: |
@@ -75,7 +73,6 @@ jobs:
           name: Launcher-${{ needs.bump_version.outputs.version }}
           path: Launcher.zip
 
-  # 3. Публикуем релиз
   release:
     name: Create Release
     needs: build
@@ -97,7 +94,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # 4. После релиза пушим новую версию в репозиторий
   update_version_in_repo:
     name: Update version in repository
     needs: release
