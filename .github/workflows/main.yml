@@ -5,28 +5,43 @@ on:
     branches: [ main, master ]
 
 jobs:
-  # 1. Генерируем новую версию на основе даты/времени
-  generate_version:
-    name: Generate version
+  # === Повышение версии (bump patch) ===
+  bump_version:
+    name: Bump version
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.gen_version.outputs.version }}
+      version: ${{ steps.set_version.outputs.version }}
     steps:
-      - name: Generate version from date
-        id: gen_version
-        run: |
-          # Формат: 0.0.ГГММДДЧЧММ (без пробелов, всегда возрастает)
-          VER="0.0.$(date -u +'%y%m%d%H%M')"
-          echo "Generated version: $VER"
-          echo "version=$VER" >> $GITHUB_OUTPUT
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 2
 
-  # 2. Собираем проект
+      - name: Bump patch version
+        id: set_version
+        run: |
+          CURRENT=$(grep -Po 'bundleVersion: \K.+' ProjectSettings/ProjectSettings.asset)
+          echo "Current version: $CURRENT"
+          IFS='.' read -r major minor patch <<< "$CURRENT"
+          NEW_PATCH=$((patch + 1))
+          NEW_VERSION="$major.$minor.$NEW_PATCH"
+          echo "New version: $NEW_VERSION"
+          sed -i "s/bundleVersion: $CURRENT/bundleVersion: $NEW_VERSION/" ProjectSettings/ProjectSettings.asset
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ProjectSettings/ProjectSettings.asset
+          git commit -m "Bump version to $NEW_VERSION [skip ci]"
+          git push
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+  # === Сборка проекта (БЕЗ КЕША Library) ===
   build:
     name: Build for Windows
-    needs: generate_version
+    needs: bump_version
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ needs.generate_version.outputs.version }}
+      version: ${{ needs.bump_version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -34,10 +49,15 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      # ВАЖНО: НЕ используем Cache Library
-      # Удаляем старую Library, если она осталась
-      - name: Clean old Library
-        run: rm -rf Library
+      # Кеширование отключено, чтобы версия точно не бралась из старого кеша
+      # При необходимости можно раскомментировать блок ниже, когда проблема с версией будет решена
+      # - name: Cache Library
+      #   uses: actions/cache@v5
+      #   with:
+      #     path: Library
+      #     key: Library-${{ runner.os }}-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+      #     restore-keys: |
+      #       Library-${{ runner.os }}-
 
       - name: Build Unity project
         uses: game-ci/unity-builder@v5
@@ -48,7 +68,6 @@ jobs:
         with:
           targetPlatform: StandaloneWindows64
           buildName: Unio Games Launcher
-          version: ${{ needs.generate_version.outputs.version }}
 
       - name: Zip the build
         run: |
@@ -58,10 +77,10 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Launcher-${{ needs.generate_version.outputs.version }}
+          name: Launcher-${{ needs.bump_version.outputs.version }}
           path: Launcher.zip
 
-  # 3. Публикуем релиз
+  # === Создание релиза ===
   release:
     name: Create Release
     needs: build
