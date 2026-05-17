@@ -29,9 +29,15 @@ public class GameLauncher : MonoBehaviour
     private Text versionText;
     private Text launcherVersionText;
     private Button launcherUpdateButton;
-    private Text launcherUpdateButtonText;
     private GameObject launcherUpdateButtonGO;
-    private Image launcherProgressFill;   // зелёная заливка прогресса обновления лаунчера
+
+    // Элементы кнопки обновления
+    private Image launcherButtonBg;               // фон кнопки (синий/серый)
+    private Text launcherButtonMainText;          // "Update to v..."
+    private GameObject launcherProgressContainer; // контейнер прогресса (зелёная полоса + текст)
+    private Image launcherProgressFill;           // зелёная полоска (filled)
+    private Text launcherProgressText;            // проценты на кнопке
+
     private Text statusText;
     private Button actionButton;
     private Text buttonText;
@@ -51,25 +57,35 @@ public class GameLauncher : MonoBehaviour
     private GameObject comingSoonCard;
 
     private string RootPath => Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
+    private string GamesFolder => Path.Combine(RootPath, "Games");
 
     private string LAUNCHER_VERSION_API_URL => $"https://api.github.com/repos/{launcherGithubUsername}/{launcherGithubRepo}/releases/latest";
     private string LAUNCHER_DOWNLOAD_URL => $"https://github.com/{launcherGithubUsername}/{launcherGithubRepo}/releases/latest/download/Launcher.zip";
 
     void Start()
     {
-        // string[] args = System.Environment.GetCommandLineArgs();
-        // if (args.Length > 1 && args[1] == "--update")
-        // {
-        //     // Если передан путь к временной папке, используем его
-        //     string updateTempDir = args.Length > 2 ? args[2].Trim('"') : null;
-        //     StartCoroutine(ReplaceAndRestart(updateTempDir));
-        //     return;
-        // }
-
+        CleanupTempFolders();
         CreateUI();
         LoadAllLocalData();
         StartCoroutine(CheckAllRemoteVersions());
         StartCoroutine(CheckLauncherUpdate());
+    }
+
+    void CleanupTempFolders()
+    {
+        try
+        {
+            string tempPath = Application.temporaryCachePath;
+            if (Directory.Exists(tempPath))
+                Directory.Delete(tempPath, true);
+            string parent = Path.GetDirectoryName(tempPath);
+            if (!string.IsNullOrEmpty(parent) && Directory.Exists(parent))
+            {
+                if (Directory.GetFiles(parent).Length == 0 && Directory.GetDirectories(parent).Length == 0)
+                    Directory.Delete(parent);
+            }
+        }
+        catch { }
     }
 
     void CreateUI()
@@ -220,43 +236,65 @@ public class GameLauncher : MonoBehaviour
         luLayout.preferredWidth = 100;
         luLayout.minHeight = 20;
         luLayout.preferredHeight = 20;
-        Image lubBg = launcherUpdateButtonGO.AddComponent<Image>();
-        lubBg.color = new Color(0.2f, 0.5f, 0.9f);
+
+        // Фон кнопки (меняется с синего на серый при загрузке)
+        launcherButtonBg = launcherUpdateButtonGO.AddComponent<Image>();
+        launcherButtonBg.color = new Color(0.2f, 0.5f, 0.9f);
         launcherUpdateButton = launcherUpdateButtonGO.AddComponent<Button>();
 
-        // Зелёная заливка прогресса
-        GameObject fillGO = new GameObject("ProgressFill");
-        fillGO.transform.SetParent(launcherUpdateButtonGO.transform, false);
-        fillGO.transform.SetAsLastSibling();
-        launcherProgressFill = fillGO.AddComponent<Image>();
-        launcherProgressFill.color = new Color(0.3f, 0.8f, 0.3f);
-        launcherProgressFill.type = Image.Type.Filled;
-        launcherProgressFill.fillMethod = Image.FillMethod.Horizontal;
-        launcherProgressFill.fillOrigin = 0;
-        launcherProgressFill.fillAmount = 0;
-        RectTransform pfRect = fillGO.GetComponent<RectTransform>();
-        pfRect.anchorMin = Vector2.zero;
-        pfRect.anchorMax = Vector2.one;
-        pfRect.offsetMin = Vector2.zero;
-        pfRect.offsetMax = Vector2.zero;
-        fillGO.SetActive(false);
+        // Текст "Update to v..."
+        GameObject mainTextGO = new GameObject("MainText");
+        mainTextGO.transform.SetParent(launcherUpdateButtonGO.transform, false);
+        launcherButtonMainText = mainTextGO.AddComponent<Text>();
+        launcherButtonMainText.text = "Update";
+        launcherButtonMainText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        launcherButtonMainText.fontSize = 12;
+        launcherButtonMainText.color = Color.white;
+        launcherButtonMainText.alignment = TextAnchor.MiddleCenter;
+        RectTransform mainTextRect = mainTextGO.GetComponent<RectTransform>();
+        mainTextRect.anchorMin = Vector2.zero;
+        mainTextRect.anchorMax = Vector2.one;
+        mainTextRect.sizeDelta = Vector2.zero;
 
-        // Текст кнопки
-        GameObject lubTextObj = new GameObject("Text");
-        lubTextObj.transform.SetParent(launcherUpdateButtonGO.transform, false);
-        launcherUpdateButtonText = lubTextObj.AddComponent<Text>();
-        launcherUpdateButtonText.text = "Update";
-        launcherUpdateButtonText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        launcherUpdateButtonText.fontSize = 12;
-        launcherUpdateButtonText.color = Color.white;
-        launcherUpdateButtonText.alignment = TextAnchor.MiddleCenter;
-        RectTransform lubTextRect = lubTextObj.GetComponent<RectTransform>();
-        lubTextRect.anchorMin = Vector2.zero;
-        lubTextRect.anchorMax = Vector2.one;
-        lubTextRect.sizeDelta = Vector2.zero;
+        // Контейнер прогресса (зелёная полоса + проценты) – без серого фона
+        launcherProgressContainer = new GameObject("ProgressContainer");
+        launcherProgressContainer.transform.SetParent(launcherUpdateButtonGO.transform, false);
+        RectTransform pcRect = launcherProgressContainer.AddComponent<RectTransform>();
+        pcRect.anchorMin = Vector2.zero;
+        pcRect.anchorMax = Vector2.one;
+        pcRect.sizeDelta = Vector2.zero;
+
+        // Зелёная полоска (ширина управляется через anchorMax)
+        GameObject greenFill = new GameObject("GreenFill");
+        greenFill.transform.SetParent(launcherProgressContainer.transform, false);
+        RectTransform gfRect = greenFill.AddComponent<RectTransform>();
+        gfRect.anchorMin = new Vector2(0, 0);
+        gfRect.anchorMax = new Vector2(0, 1);       // начнём с нулевой ширины
+        gfRect.pivot = new Vector2(0, 0.5f);
+        gfRect.sizeDelta = Vector2.zero;
+        launcherProgressFill = greenFill.AddComponent<Image>();
+        launcherProgressFill.color = new Color(0.3f, 0.8f, 0.3f);
+        // Filled больше не используется
+
+        // Текст процентов
+        GameObject percentTextGO = new GameObject("PercentText");
+        percentTextGO.transform.SetParent(launcherProgressContainer.transform, false);
+        launcherProgressText = percentTextGO.AddComponent<Text>();
+        launcherProgressText.text = "0%";
+        launcherProgressText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        launcherProgressText.fontSize = 12;
+        launcherProgressText.color = Color.white;
+        launcherProgressText.alignment = TextAnchor.MiddleCenter;
+        RectTransform ptRect = percentTextGO.GetComponent<RectTransform>();
+        ptRect.anchorMin = Vector2.zero;
+        ptRect.anchorMax = Vector2.one;
+        ptRect.sizeDelta = Vector2.zero;
+
+        // По умолчанию всё скрыто
+        launcherProgressContainer.SetActive(false);
+        launcherUpdateButtonGO.SetActive(false);
 
         launcherUpdateButton.onClick.AddListener(() => StartCoroutine(DownloadLauncherUpdate()));
-        launcherUpdateButtonGO.SetActive(false);
 
         // --- Статусное сообщение ---
         GameObject statusObj = new GameObject("Status");
@@ -326,14 +364,14 @@ public class GameLauncher : MonoBehaviour
         fillObj.transform.SetParent(progressBarObj.transform, false);
         Image fillImg = fillObj.AddComponent<Image>();
         fillImg.color = new Color(0.3f, 0.8f, 0.3f);
-        RectTransform fillRect = fillObj.GetComponent<RectTransform>();
-        fillRect.anchorMin = new Vector2(0, 0);
-        fillRect.anchorMax = new Vector2(0, 1);
-        fillRect.pivot = new Vector2(0, 0.5f);
-        fillRect.sizeDelta = new Vector2(0, 0);
+        RectTransform fillRect2 = fillObj.GetComponent<RectTransform>();
+        fillRect2.anchorMin = new Vector2(0, 0);
+        fillRect2.anchorMax = new Vector2(0, 1);
+        fillRect2.pivot = new Vector2(0, 0.5f);
+        fillRect2.sizeDelta = new Vector2(0, 0);
 
         progressSlider = progressBarObj.AddComponent<Slider>();
-        progressSlider.fillRect = fillRect;
+        progressSlider.fillRect = fillRect2;
         progressSlider.targetGraphic = fillImg;
         progressSlider.minValue = 0;
         progressSlider.maxValue = 1;
@@ -348,12 +386,12 @@ public class GameLauncher : MonoBehaviour
         progressText.fontSize = 14;
         progressText.color = Color.white;
         progressText.alignment = TextAnchor.MiddleCenter;
-        RectTransform ptRect = progressTextObj.GetComponent<RectTransform>();
-        ptRect.anchorMin = new Vector2(0, 0);
-        ptRect.anchorMax = new Vector2(1, 0);
-        ptRect.pivot = new Vector2(0.5f, 0);
-        ptRect.anchoredPosition = new Vector2(0, 2);
-        ptRect.sizeDelta = new Vector2(0, 18);
+        RectTransform ptRect2 = progressTextObj.GetComponent<RectTransform>();
+        ptRect2.anchorMin = new Vector2(0, 0);
+        ptRect2.anchorMax = new Vector2(1, 0);
+        ptRect2.pivot = new Vector2(0.5f, 0);
+        ptRect2.anchoredPosition = new Vector2(0, 2);
+        ptRect2.sizeDelta = new Vector2(0, 18);
 
         progressPanel.SetActive(false);
     }
@@ -362,11 +400,12 @@ public class GameLauncher : MonoBehaviour
     {
         for (int i = 0; i < games.Count; i++)
         {
-            string vPath = Path.Combine(RootPath, $"{games[i].gameName}_version.txt");
+            string gameFolder = Path.Combine(GamesFolder, games[i].gameName);
+            string vPath = Path.Combine(gameFolder, $"{games[i].gameName}_version.txt");
             if (File.Exists(vPath))
                 localVersions[i] = File.ReadAllText(vPath).Trim();
-            string gPath = Path.Combine(RootPath, games[i].gameName);
-            gameInstalled[i] = Directory.Exists(gPath);
+
+            gameInstalled[i] = Directory.Exists(gameFolder);
         }
         RefreshGameList();
         if (games.Count > 0)
@@ -603,7 +642,8 @@ public class GameLauncher : MonoBehaviour
 
         if (ExtractGame(index, filePath))
         {
-            File.WriteAllText(Path.Combine(RootPath, $"{games[index].gameName}_version.txt"), remoteVersions[index]);
+            string gameFolder = Path.Combine(GamesFolder, games[index].gameName);
+            File.WriteAllText(Path.Combine(gameFolder, $"{games[index].gameName}_version.txt"), remoteVersions[index]);
             File.Delete(filePath);
             gameInstalled[index] = true;
             localVersions[index] = remoteVersions[index];
@@ -627,7 +667,7 @@ public class GameLauncher : MonoBehaviour
     {
         try
         {
-            string extractPath = Path.Combine(RootPath, games[index].gameName);
+            string extractPath = Path.Combine(GamesFolder, games[index].gameName);
             if (Directory.Exists(extractPath))
                 Directory.Delete(extractPath, true);
             Directory.CreateDirectory(extractPath);
@@ -644,7 +684,7 @@ public class GameLauncher : MonoBehaviour
 
     void LaunchGame(int index)
     {
-        string gamePath = Path.Combine(RootPath, games[index].gameName, games[index].gameName + ".exe");
+        string gamePath = Path.Combine(GamesFolder, games[index].gameName, games[index].gameName + ".exe");
         if (File.Exists(gamePath))
         {
             try
@@ -679,14 +719,12 @@ public class GameLauncher : MonoBehaviour
                 string remoteLauncherVersion = ExtractTagName(json);
                 if (remoteLauncherVersion != null && remoteLauncherVersion != $"v{Application.version}")
                 {
-                    launcherProgressFill.fillAmount = 0;
-                    launcherUpdateButtonText.gameObject.SetActive(true);
-                    launcherUpdateButtonText.text = $"Update to {remoteLauncherVersion}";
+                    launcherButtonBg.enabled = true;
+                    launcherButtonBg.color = new Color(0.2f, 0.5f, 0.9f); // синий
+                    launcherButtonMainText.gameObject.SetActive(true);
+                    launcherButtonMainText.text = $"Update to {remoteLauncherVersion}";
+                    launcherProgressContainer.SetActive(false);
                     launcherUpdateButton.interactable = true;
-                    launcherUpdateButtonGO.GetComponent<Image>().color = new Color(0.2f, 0.5f, 0.9f);
-                    launcherProgressFill.gameObject.SetActive(false);
-                    launcherUpdateButtonText.gameObject.SetActive(true);
-                    launcherUpdateButtonText.text = $"Update to {remoteLauncherVersion}";
                     launcherUpdateButtonGO.SetActive(true);
                 }
             }
@@ -695,12 +733,17 @@ public class GameLauncher : MonoBehaviour
 
     IEnumerator DownloadLauncherUpdate()
     {
+        launcherButtonBg.enabled = true;
+        launcherButtonBg.color = new Color(0.2f, 0.2f, 0.25f); // серый, как у игры
+        launcherButtonMainText.gameObject.SetActive(false);
+        launcherProgressContainer.SetActive(true);
+        launcherProgressFill.rectTransform.anchorMax = new Vector2(0, 1);
+        launcherProgressFill.transform.SetAsLastSibling();
+        launcherProgressText.gameObject.SetActive(true);
+        launcherProgressText.transform.SetAsLastSibling();
+        launcherProgressText.text = "0%";
         launcherUpdateButton.interactable = false;
-        launcherUpdateButtonText.text = "0%";
-        launcherProgressFill.fillAmount = 0;
-        launcherProgressFill.gameObject.SetActive(true);
 
-        // Временные папки
         string tempDir = Path.Combine(Application.temporaryCachePath, "LauncherUpdate");
         string savePath = Path.Combine(tempDir, "Launcher.zip");
         string extractDir = Path.Combine(tempDir, "NewLauncher");
@@ -709,7 +752,6 @@ public class GameLauncher : MonoBehaviour
 
         Debug.Log($"[LauncherUpdate] Downloading from: {LAUNCHER_DOWNLOAD_URL}");
 
-        // Скачивание
         using (UnityWebRequest www = UnityWebRequest.Get(LAUNCHER_DOWNLOAD_URL))
         {
             DownloadHandlerFile dh = new DownloadHandlerFile(savePath);
@@ -720,16 +762,18 @@ public class GameLauncher : MonoBehaviour
             while (!www.isDone)
             {
                 float progress = www.downloadProgress;
-                launcherProgressFill.fillAmount = progress;
-                launcherUpdateButtonText.text = $"{Mathf.Round(progress * 100)}%";
+                launcherProgressFill.rectTransform.anchorMax = new Vector2(progress, 1);
+                launcherProgressText.text = $"{Mathf.Round(progress * 100)}%";
                 yield return null;
             }
 
             if (www.result != UnityWebRequest.Result.Success)
             {
                 Debug.LogError($"[LauncherUpdate] Download failed: {www.error}");
-                launcherProgressFill.gameObject.SetActive(false);
-                launcherUpdateButtonText.text = "Error";
+                launcherProgressContainer.SetActive(false);
+                launcherButtonBg.color = new Color(0.2f, 0.5f, 0.9f); // синий
+                launcherButtonMainText.gameObject.SetActive(true);
+                launcherButtonMainText.text = "Error";
                 launcherUpdateButton.interactable = true;
                 yield break;
             }
@@ -737,7 +781,6 @@ public class GameLauncher : MonoBehaviour
 
         Debug.Log("[LauncherUpdate] Download complete, extracting...");
 
-        // Распаковка
         try
         {
             if (Directory.Exists(extractDir))
@@ -749,35 +792,36 @@ public class GameLauncher : MonoBehaviour
         catch (System.Exception e)
         {
             Debug.LogError("[LauncherUpdate] Extraction failed: " + e.Message);
-            launcherProgressFill.gameObject.SetActive(false);
-            launcherUpdateButtonText.text = "Error";
+            launcherProgressContainer.SetActive(false);
+            launcherButtonBg.color = new Color(0.2f, 0.5f, 0.9f);
+            launcherButtonMainText.gameObject.SetActive(true);
+            launcherButtonMainText.text = "Error";
             launcherUpdateButton.interactable = true;
             yield break;
         }
 
-        // Проверяем наличие нового лаунчера
         string currentDir = RootPath;
         string newExe = Path.Combine(extractDir, "Unio Games Launcher.exe");
         if (!File.Exists(newExe))
         {
             Debug.LogError("[LauncherUpdate] New exe not found in archive!");
-            launcherProgressFill.gameObject.SetActive(false);
-            launcherUpdateButtonText.text = "Error";
+            launcherProgressContainer.SetActive(false);
+            launcherButtonBg.color = new Color(0.2f, 0.5f, 0.9f);
+            launcherButtonMainText.gameObject.SetActive(true);
+            launcherButtonMainText.text = "Error";
             launcherUpdateButton.interactable = true;
             yield break;
         }
 
-        // Удаляем соседние пустые папки в Temp (чистота)
-        string tempParent = Path.GetDirectoryName(tempDir);        // Unio Games Launcher
-        string tempGrandParent = Path.GetDirectoryName(tempParent); // Unio Games
+        string tempParent = Path.GetDirectoryName(tempDir);
+        string tempGrandParent = Path.GetDirectoryName(tempParent);
 
-        // Формируем одну команду для cmd.exe
         string launcherFullPath = Path.Combine(currentDir, "Unio Games Launcher.exe");
-        string cmd = $"/c timeout /t 3 /nobreak >nul & " +
-                     $"xcopy \"{extractDir}\\*\" \"{currentDir}\" /E /Y /C /Q & " +
-                     $"rmdir /s /q \"{tempDir}\" & " +
-                     $"rmdir /q \"{tempParent}\" 2>nul & " +
-                     $"rmdir /q \"{tempGrandParent}\" 2>nul & " +
+        string cmd = $"/c timeout /t 1 /nobreak >nul && " +
+                     $"xcopy \"{extractDir}\\*\" \"{currentDir}\" /E /Y /C /Q && " +
+                     $"rmdir /s /q \"{tempDir}\" && " +
+                     $"rmdir /s /q \"{tempParent}\" && " +
+                     $"rmdir /s /q \"{tempGrandParent}\" && " +
                      $"start \"\" \"{launcherFullPath}\"";
 
         Debug.Log("[LauncherUpdate] Starting cmd update process...");
@@ -795,8 +839,10 @@ public class GameLauncher : MonoBehaviour
         catch (System.Exception e)
         {
             Debug.LogError("[LauncherUpdate] Failed to start cmd: " + e.Message);
-            launcherProgressFill.gameObject.SetActive(false);
-            launcherUpdateButtonText.text = "Error";
+            launcherProgressContainer.SetActive(false);
+            launcherButtonBg.color = new Color(0.2f, 0.5f, 0.9f);
+            launcherButtonMainText.gameObject.SetActive(true);
+            launcherButtonMainText.text = "Error";
             launcherUpdateButton.interactable = true;
         }
     }
