@@ -5,7 +5,7 @@ on:
     branches: [ main, master ]
 
 jobs:
-  # 1. Вычисляем НОВУЮ версию (текущая + 1), но НЕ меняем файлы
+  # 1. Вычисляем НОВУЮ версию
   bump_version:
     name: Calculate next version
     runs-on: ubuntu-latest
@@ -26,7 +26,7 @@ jobs:
           echo "Next version: $NEW_VERSION"
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
-  # 2. Собираем проект, используя НОВУЮ версию
+  # 2. Собираем проект, предварительно записав новую версию в файл
   build:
     name: Build for Windows
     needs: bump_version
@@ -39,6 +39,12 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+
+      - name: Replace version in ProjectSettings
+        run: |
+          NEW_VERSION="${{ needs.bump_version.outputs.version }}"
+          sed -i "s/bundleVersion:.*/bundleVersion: $NEW_VERSION/" ProjectSettings/ProjectSettings.asset
+          echo "Updated ProjectSettings.asset with version $NEW_VERSION"
 
       - name: Cache Library
         uses: actions/cache@v5
@@ -56,7 +62,7 @@ jobs:
         with:
           targetPlatform: StandaloneWindows64
           buildName: Unio Games Launcher
-          version: ${{ needs.bump_version.outputs.version }}   # <-- передаём новую версию прямо в билд
+          # version не передаём, она уже в файле
 
       - name: Zip the build
         run: |
@@ -69,7 +75,7 @@ jobs:
           name: Launcher-${{ needs.bump_version.outputs.version }}
           path: Launcher.zip
 
-  # 3. Публикуем релиз с новой версией
+  # 3. Публикуем релиз
   release:
     name: Create Release
     needs: build
@@ -91,9 +97,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # 4. Теперь обновляем версию в репозитории (для следующей сборки)
+  # 4. После релиза пушим новую версию в репозиторий
   update_version_in_repo:
-    name: Update version in ProjectSettings
+    name: Update version in repository
     needs: release
     runs-on: ubuntu-latest
     steps:
@@ -104,12 +110,12 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Write new version to file
+      - name: Commit new version to ProjectSettings
         run: |
           NEW_VERSION="${{ needs.release.outputs.version }}"
           sed -i "s/bundleVersion:.*/bundleVersion: $NEW_VERSION/" ProjectSettings/ProjectSettings.asset
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add ProjectSettings/ProjectSettings.asset
-          git commit -m "Bump version to $NEW_VERSION [skip ci]"
+          git commit -m "Set version to $NEW_VERSION [skip ci]"
           git push
