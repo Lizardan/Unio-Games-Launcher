@@ -60,7 +60,7 @@ jobs:
         with:
           targetPlatform: StandaloneWindows64
           buildName: Unio Games Launcher
-          allowDirty: true   # разрешает незакоммиченные изменения
+          allowDirtyBuild: true          # ← правильный параметр
 
       - name: Zip the build
         run: |
