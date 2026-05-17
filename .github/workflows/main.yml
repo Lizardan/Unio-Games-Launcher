@@ -10,7 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.set_version.outputs.version }}
-      commit_sha: ${{ steps.commit_sha.outputs.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -35,10 +34,6 @@ jobs:
           git push
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Get commit SHA
-        id: commit_sha
-        run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
-
   build:
     name: Build for Windows
     needs: bump_version
@@ -49,16 +44,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          # Используем SHA коммита с уже повышенной версией
-          ref: ${{ needs.bump_version.outputs.commit_sha }}
+          ref: main
           fetch-depth: 0
-
-      # Дополнительная перестраховка: явно прописываем версию в файл
-      - name: Force set version in ProjectSettings
-        run: |
-          NEW_VERSION="${{ needs.bump_version.outputs.version }}"
-          sed -i "s/bundleVersion:.*/bundleVersion: $NEW_VERSION/" ProjectSettings/ProjectSettings.asset
-          echo "ProjectSettings.asset updated with version $NEW_VERSION"
 
       - name: Build Unity project
         uses: game-ci/unity-builder@v5
@@ -69,7 +56,8 @@ jobs:
         with:
           targetPlatform: StandaloneWindows64
           buildName: Unio Games Launcher
-          # Никаких version/versioning – версия будет взята из ProjectSettings.asset
+          version: ${{ needs.bump_version.outputs.version }}   # <-- явно передаём версию
+          versioning: None                                     # <-- отключаем автоматическое определение
           allowDirtyBuild: true
 
       - name: Zip the build
