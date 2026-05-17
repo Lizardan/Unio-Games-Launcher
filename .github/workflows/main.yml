@@ -47,14 +47,13 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      # Явно проставляем новую версию в файл, чтобы Unity её увидел
+      # Принудительно прописываем версию в файл (хотя version параметр её переопределит)
       - name: Set version in ProjectSettings
         run: |
           NEW_VERSION="${{ needs.bump_version.outputs.version }}"
           sed -i "s/bundleVersion:.*/bundleVersion: $NEW_VERSION/" ProjectSettings/ProjectSettings.asset
           echo "ProjectSettings.asset updated with version $NEW_VERSION"
 
-      # Сборка: без кеша Library, с прямым указанием версии и разрешением грязной сборки
       - name: Build Unity project
         uses: game-ci/unity-builder@v5
         env:
@@ -64,8 +63,8 @@ jobs:
         with:
           targetPlatform: StandaloneWindows64
           buildName: Unio Games Launcher
-          version: ${{ needs.bump_version.outputs.version }}   # <-- принудительная версия
-          allowDirtyBuild: true                                # разрешаем изменённый ProjectSettings
+          version: ${{ needs.bump_version.outputs.version }}
+          allowDirtyBuild: true
 
       - name: Zip the build
         run: |
